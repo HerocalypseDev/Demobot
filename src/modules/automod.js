@@ -3,7 +3,7 @@ import {
   AutoModerationRuleEventType, AutoModerationRuleTriggerType, AutoModerationActionType,
 } from 'discord.js';
 import { getSetting } from '../db.js';
-import { colors } from '../util.js';
+import { card } from '../ui.js';
 
 export const name = 'automod';
 
@@ -56,11 +56,18 @@ export async function onCommand(i) {
   const key = i.options.getSubcommand();
 
   if (key === 'status') {
-    const description = Object.keys(RULES).map(k => {
+    const lines = Object.keys(RULES).map(k => {
       const rule = rules.find(r => r.name === ruleName(k));
-      return `**${RULES[k].label}:** ${rule?.enabled ? 'on' : 'off'}`;
-    }).join('\n');
-    return i.editReply({ embeds: [{ title: 'AutoMod', color: colors.brand, description }] });
+      return `**${RULES[k].label}**  ${rule?.enabled ? 'On' : 'Off'}`;
+    });
+    // The reply was already deferred as ephemeral, so the card itself must not set that flag.
+    return i.editReply(card({
+      title: 'AutoMod',
+      body: 'Discord enforces these rules itself, even while the bot is offline.',
+      thumbnail: i.guild.iconURL({ size: 128 }) ?? undefined,
+      blocks: [lines.join('\n')],
+      footer: `Staff are exempt. ${getSetting(i.guildId, 'log_channel') ? 'Alerts go to the log channel.' : 'Set a log channel to get alerts.'}`,
+    }));
   }
 
   const existing = rules.find(r => r.name === ruleName(key));

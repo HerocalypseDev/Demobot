@@ -3,6 +3,7 @@ import {
 } from 'discord.js';
 import { db } from '../db.js';
 import { colors, parseDuration, sendLog } from '../util.js';
+import { card, time, userAuthor } from '../ui.js';
 
 export const name = 'mod';
 
@@ -11,6 +12,7 @@ const MAX_TIMEOUT = 28 * 86_400_000;
 const PAGE = 5;
 const PAST = { warn: 'warned', timeout: 'timed out', untimeout: 'removed from timeout', kick: 'kicked', ban: 'banned', unban: 'unbanned' };
 const COLOR = { warn: colors.warn, timeout: colors.warn, untimeout: colors.ok, kick: colors.error, ban: colors.error, unban: colors.ok };
+const LABEL = { warn: 'Warning', timeout: 'Timeout', untimeout: 'Timeout removed', kick: 'Kick', ban: 'Ban', unban: 'Unban' };
 
 export function addCase(guildId, userId, modId, action, reason, now = Date.now()) {
   return db.prepare(`INSERT INTO cases (guild_id, number, user_id, mod_id, action, reason, created_at)
@@ -54,37 +56,46 @@ export const commands = [
       .addIntegerOption(o => o.setName('number').setDescription('Case number').setRequired(true).setMinValue(1))),
 ];
 
-async function finish(i, user, action, reason, extra = '') {
+async function finish(i, user, action, reason, duration) {
   const number = addCase(i.guildId, user.id, i.user.id, action, reason);
-  const embed = {
-    title: `Case #${number}: ${action}`,
+  const details = [`**User** ${user} (${user.username})`, `**Moderator** ${i.user}`, duration && `**Duration** ${duration}`, `**Reason** ${reason}`];
+  await i.reply(card({
+    accent: COLOR[action],
+    title: `Case #${number}`,
+    body: LABEL[action],
+    thumbnail: user.displayAvatarURL({ size: 128 }),
+    blocks: [details.filter(Boolean).join('\n')],
+    footer: `User ID ${user.id}`,
+  }));
+  await sendLog(i.guild, {
+    author: userAuthor(user),
+    title: `Case #${number}: ${LABEL[action]}`,
     color: COLOR[action],
-    description: `${user} was ${PAST[action]}${extra}.`,
-    fields: [{ name: 'Reason', value: reason }, { name: 'Moderator', value: `${i.user}` }],
-  };
-  await i.reply({ embeds: [embed] });
-  await sendLog(i.guild, embed);
+    description: `${user} was ${PAST[action]}${duration ? ` for ${duration}` : ''}.\n-# User ID ${user.id}`,
+    fields: [{ name: 'Moderator', value: `${i.user}`, inline: true }, { name: 'Reason', value: reason, inline: true }],
+  });
 }
 
-function casesPage(guildId, userId, page) {
+function casesPage(client, guildId, userId, page, ephemeral = false) {
   const total = db.prepare('SELECT COUNT(*) AS n FROM cases WHERE guild_id = ? AND user_id = ?').get(guildId, userId).n;
   const pages = Math.max(1, Math.ceil(total / PAGE));
   page = Math.min(Math.max(page, 0), pages - 1);
   const rows = db.prepare('SELECT * FROM cases WHERE guild_id = ? AND user_id = ? ORDER BY number DESC LIMIT ? OFFSET ?')
     .all(guildId, userId, PAGE, page * PAGE);
-  return {
-    embeds: [{
-      title: 'Moderation cases',
-      color: colors.brand,
-      description: `<@${userId}>\n\n`
-        + (rows.map(c => `**#${c.number} ${c.action}** <t:${Math.floor(c.created_at / 1000)}:R> by <@${c.mod_id}>\n${c.reason}`).join('\n\n') || 'No cases.'),
-      footer: { text: `Page ${page + 1} of ${pages}, ${total} case(s)` },
-    }],
-    components: [new ActionRowBuilder().addComponents(
+  return card({
+    title: 'Moderation history',
+    body: `<@${userId}>, ${total} case(s)`,
+    thumbnail: client.users.cache.get(userId)?.displayAvatarURL({ size: 128 }),
+    blocks: rows.length
+      ? rows.map(c => `**#${c.number} ${LABEL[c.action] ?? c.action}**  ${time(c.created_at)}\nby <@${c.mod_id}>\n> ${c.reason}`)
+      : ['No cases. This member has a clean record.'],
+    footer: `Page ${page + 1} of ${pages}`,
+    rows: pages > 1 ? [new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`mod:cases:${userId}:${page - 1}`).setLabel('Previous').setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
       new ButtonBuilder().setCustomId(`mod:cases:${userId}:${page + 1}`).setLabel('Next').setStyle(ButtonStyle.Secondary).setDisabled(page >= pages - 1),
-    )],
-  };
+    )] : [],
+    ephemeral,
+  });
 }
 
 export async function onCommand(i) {
@@ -92,12 +103,12 @@ export async function onCommand(i) {
 
   if (action === 'case') {
     if (i.options.getSubcommand() === 'list') {
-      return i.reply({ ...casesPage(i.guildId, i.options.getUser('user').id, 0), flags: MessageFlags.Ephemeral });
+      return i.reply(casesPage(i.client, i.guildId, i.options.getUser('user').id, 0, true));
     }
     const number = i.options.getInteger('number');
     const removed = db.prepare('DELETE FROM cases WHERE guild_id = ? AND number = ?').run(i.guildId, number).changes;
     if (!removed) return i.reply(ephemeral(`Case #${number} does not exist.`));
-    await sendLog(i.guild, { title: `Case #${number} deleted`, color: colors.warn, description: `Deleted by ${i.user}.` });
+    await sendLog(i.guild, { author: userAuthor(i.user), title: `Case #${number} deleted`, color: colors.warn, description: `Deleted by ${i.user}.` });
     return i.reply(ephemeral(`Case #${number} deleted.`));
   }
 
@@ -108,7 +119,7 @@ export async function onCommand(i) {
     let messages = await i.channel.messages.fetch({ limit: 100 });
     if (user) messages = messages.filter(m => m.author.id === user.id);
     const deleted = await i.channel.bulkDelete(messages.first(amount), true);
-    await sendLog(i.guild, { title: 'Messages purged', color: colors.warn, description: `${i.user} deleted ${deleted.size} message(s) in ${i.channel}${user ? ` from ${user}` : ''}.` });
+    await sendLog(i.guild, { author: userAuthor(i.user), title: 'Messages purged', color: colors.warn, description: `${i.user} deleted ${deleted.size} message(s) in ${i.channel}${user ? ` from ${user}` : ''}.` });
     return i.editReply(`Deleted ${deleted.size} message(s).${deleted.size < amount ? ' Messages older than 14 days cannot be bulk deleted.' : ''}`);
   }
 
@@ -133,24 +144,31 @@ export async function onCommand(i) {
     if (!botCan) return i.reply(ephemeral('I can\'t do that to this member. My role must be above theirs and I need the right permission.'));
   }
 
-  let ms, extra = '';
+  let ms, duration;
   if (action === 'timeout') {
     ms = parseDuration(i.options.getString('duration'));
     if (!ms || ms > MAX_TIMEOUT) return i.reply(ephemeral('Use a duration like 10m, 2h or 1d, up to 28d.'));
-    extra = ` for ${i.options.getString('duration')}`;
+    duration = i.options.getString('duration');
   }
   if (action === 'untimeout' && !member.isCommunicationDisabled()) return i.reply(ephemeral('That member is not timed out.'));
 
   // DM first: after a kick or ban the bot may share no server with them.
-  await user.send(`You were ${PAST[action]}${extra} in **${i.guild.name}**. Reason: ${reason}`).catch(() => {});
+  await user.send(card({
+    accent: COLOR[action],
+    title: LABEL[action],
+    body: `You were ${PAST[action]}${duration ? ` for ${duration}` : ''} in **${i.guild.name}**.`,
+    thumbnail: i.guild.iconURL({ size: 128 }) ?? undefined,
+    blocks: [`**Reason** ${reason}`],
+    footer: action === 'timeout' ? `The timeout ends ${time(Date.now() + ms)}.` : undefined,
+  })).catch(() => {});
 
   if (action === 'timeout') await member.timeout(ms, reason);
   if (action === 'untimeout') await member.timeout(null, reason);
   if (action === 'kick') await member.kick(reason);
   if (action === 'ban') await i.guild.members.ban(user, { reason, deleteMessageSeconds: (i.options.getInteger('delete_days') ?? 0) * 86_400 });
-  return finish(i, user, action, reason, extra);
+  return finish(i, user, action, reason, duration);
 }
 
 export async function onComponent(i, action, [userId, page]) {
-  if (action === 'cases') return i.update(casesPage(i.guildId, userId, Number(page)));
+  if (action === 'cases') return i.update(casesPage(i.client, i.guildId, userId, Number(page)));
 }

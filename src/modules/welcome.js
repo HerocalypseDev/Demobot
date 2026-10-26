@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, PermissionFlagsBits, InteractionContextType, MessageFlags } from 'discord.js';
 import { getSetting, setSetting } from '../db.js';
 import { colors } from '../util.js';
+import { card, time } from '../ui.js';
 
 export const name = 'welcome';
 
@@ -15,16 +16,21 @@ async function announce(member, key) {
   const channel = member.guild.channels.cache.get(getSetting(member.guild.id, 'welcome_channel'));
   const text = getSetting(member.guild.id, key) ?? DEFAULTS[key];
   if (!channel?.isTextBased() || text === 'off') return;
-  const description = fillPlaceholders(text, {
+  const body = fillPlaceholders(text, {
     user: `${member}`, name: member.displayName, server: member.guild.name, count: member.guild.memberCount,
   });
+  const joining = key === 'welcome_message';
   await channel.send({
-    embeds: [{
-      description,
-      color: key === 'welcome_message' ? colors.ok : colors.warn,
-      thumbnail: { url: member.displayAvatarURL({ size: 128 }) },
-    }],
-    allowedMentions: { users: [member.id] },
+    ...card({
+      accent: joining ? colors.brand : colors.warn,
+      banner: joining ? 'welcome' : undefined,
+      body: joining ? `## ${member.displayName}\n${body}` : body,
+      thumbnail: member.displayAvatarURL({ size: 256 }),
+      footer: joining
+        ? `Member #${member.guild.memberCount}. Account created ${time(member.user.createdTimestamp)}.`
+        : member.joinedTimestamp ? `Joined ${time(member.joinedTimestamp)}.` : undefined,
+    }),
+    allowedMentions: { users: joining ? [member.id] : [] },
   });
 }
 

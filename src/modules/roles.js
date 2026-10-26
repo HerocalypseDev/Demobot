@@ -2,7 +2,8 @@ import {
   SlashCommandBuilder, PermissionFlagsBits, InteractionContextType, ChannelType, MessageFlags,
   ActionRowBuilder, RoleSelectMenuBuilder, StringSelectMenuBuilder,
 } from 'discord.js';
-import { colors } from '../util.js';
+import { db } from '../db.js';
+import { card } from '../ui.js';
 
 export const name = 'roles';
 
@@ -22,6 +23,24 @@ export function roleProblem(role, member) {
   return null;
 }
 
+// Rebuilt from the database on every pick, which also clears the member's selection in the menu.
+function menuMessage(menu, guild) {
+  const roles = JSON.parse(menu.role_ids).map(id => guild.roles.cache.get(id)).filter(Boolean);
+  return card({
+    banner: 'roles',
+    title: menu.title,
+    body: menu.description,
+    blocks: [`**Available roles**\n${roles.join('  ') || 'none'}`],
+    footer: menu.single ? 'Pick one role. Picking another one replaces it.' : 'Pick any roles. Pick a role you already have to remove it.',
+    rows: roles.length ? [new ActionRowBuilder().addComponents(new StringSelectMenuBuilder()
+      .setCustomId(`roles:toggle:${menu.id}`)
+      .setPlaceholder(menu.single ? 'Pick one role' : 'Pick roles')
+      .setMinValues(1)
+      .setMaxValues(menu.single ? 1 : roles.length)
+      .addOptions(roles.map(r => ({ label: r.name, value: r.id }))))] : [],
+  });
+}
+
 const ephemeral = content => ({ content, flags: MessageFlags.Ephemeral });
 
 export const commands = [
@@ -38,7 +57,7 @@ export const commands = [
 export async function onCommand(i) {
   drafts.set(`${i.guildId}:${i.user.id}`, {
     title: i.options.getString('title'),
-    description: i.options.getString('description') ?? 'Pick roles below. Pick a role you already have to remove it.',
+    description: i.options.getString('description') ?? 'Choose the roles that fit you.',
     single: i.options.getBoolean('single') ?? false,
     channelId: (i.options.getChannel('channel') ?? i.channel).id,
   });
@@ -50,7 +69,7 @@ export async function onCommand(i) {
   });
 }
 
-export async function onComponent(i, action) {
+export async function onComponent(i, action, [id]) {
   if (action === 'pick') {
     const draft = drafts.get(`${i.guildId}:${i.user.id}`);
     if (!draft) return i.update({ content: 'This menu draft expired. Run `/rolemenu create` again.', components: [] });
@@ -59,28 +78,23 @@ export async function onComponent(i, action) {
       return i.update({ content: `Can't use these roles:\n${problems.map(([r, p]) => `- ${r} ${p}`).join('\n')}\nPick again.` });
     }
     drafts.delete(`${i.guildId}:${i.user.id}`);
+    const menu = db.prepare('INSERT INTO role_menus (guild_id, title, description, single, role_ids) VALUES (?, ?, ?, ?, ?) RETURNING *')
+      .get(i.guildId, draft.title, draft.description, draft.single ? 1 : 0, JSON.stringify([...i.roles.keys()]));
     const channel = i.guild.channels.cache.get(draft.channelId);
-    await channel.send({
-      embeds: [{ title: draft.title, description: draft.description, color: colors.brand }],
-      components: [new ActionRowBuilder().addComponents(new StringSelectMenuBuilder()
-        .setCustomId(`roles:toggle:${draft.single ? 1 : 0}`)
-        .setPlaceholder(draft.single ? 'Pick one role' : 'Pick roles')
-        .setMinValues(1)
-        .setMaxValues(draft.single ? 1 : i.roles.size)
-        .addOptions(i.roles.map(r => ({ label: r.name, value: r.id }))))],
-    });
+    await channel.send(menuMessage(menu, i.guild));
     return i.update({ content: `Role menu posted in ${channel}.`, components: [] });
   }
 
   if (action === 'toggle') {
-    const single = i.customId.endsWith(':1');
-    const menuRoles = i.component.options.map(o => o.value);
+    const menu = db.prepare('SELECT * FROM role_menus WHERE id = ? AND guild_id = ?').get(Number(id), i.guildId);
+    if (!menu) return i.reply(ephemeral('This role menu is outdated. Ask staff to post it again with `/rolemenu create`.'));
+    const menuRoles = JSON.parse(menu.role_ids);
     const added = [], removed = [], skipped = [];
 
-    for (const id of i.values) {
-      const role = i.guild.roles.cache.get(id);
+    for (const roleId of i.values.filter(v => menuRoles.includes(v))) {
+      const role = i.guild.roles.cache.get(roleId);
       if (!role || roleProblem(role)) { skipped.push(role?.name ?? 'deleted role'); continue; }
-      if (i.member.roles.cache.has(id)) {
+      if (i.member.roles.cache.has(roleId)) {
         await i.member.roles.remove(role, 'Role menu');
         removed.push(role);
       } else {
@@ -88,10 +102,10 @@ export async function onComponent(i, action) {
         added.push(role);
       }
     }
-    if (single && added.length) {
-      for (const id of menuRoles) {
-        if (id === added[0].id || !i.member.roles.cache.has(id)) continue;
-        const role = i.guild.roles.cache.get(id);
+    if (menu.single && added.length) {
+      for (const roleId of menuRoles) {
+        if (roleId === added[0].id || !i.member.roles.cache.has(roleId)) continue;
+        const role = i.guild.roles.cache.get(roleId);
         if (role && !roleProblem(role)) {
           await i.member.roles.remove(role, 'Role menu (single choice)');
           removed.push(role);
@@ -99,13 +113,12 @@ export async function onComponent(i, action) {
       }
     }
 
-    // Re-send the same components so the member's selection resets.
-    await i.update({ components: i.message.components });
+    await i.update(menuMessage(menu, i.guild));
     const lines = [
-      added.length && `Added: ${added.join(', ')}`,
-      removed.length && `Removed: ${removed.join(', ')}`,
-      skipped.length && `Not available: ${skipped.join(', ')}`,
+      added.length && `**Added** ${added.join(', ')}`,
+      removed.length && `**Removed** ${removed.join(', ')}`,
+      skipped.length && `**Not available** ${skipped.join(', ')}`,
     ].filter(Boolean);
-    return i.followUp(ephemeral(lines.join('\n') || 'No changes.'));
+    return i.followUp(card({ body: `### Your roles were updated\n${lines.join('\n') || 'No changes.'}`, ephemeral: true }));
   }
 }

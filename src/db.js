@@ -86,6 +86,14 @@ CREATE TABLE IF NOT EXISTS applications (
   reviewer_id TEXT,
   created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS role_menus (
+  id INTEGER PRIMARY KEY,
+  guild_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  single INTEGER NOT NULL,
+  role_ids TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS reminders (
   id INTEGER PRIMARY KEY,
   user_id TEXT NOT NULL,
