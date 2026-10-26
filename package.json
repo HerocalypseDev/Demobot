@@ -1,0 +1,20 @@
+{
+  "name": "demobot",
+  "version": "0.1.0",
+  "description": "All-in-one Discord bot built with Discord.js: tickets, verification, moderation, roles, giveaways and more.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node --env-file=.env src/index.js",
+    "deploy": "node --env-file=.env src/deploy.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "author": "HerocalypseDev",
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "14.27.0"
+  }
+}
