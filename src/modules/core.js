@@ -4,7 +4,7 @@ import { colors } from '../util.js';
 
 export const name = 'core';
 
-const keys = {
+export const keys = {
   log_channel: { label: 'Log channel', type: 'channel' },
   welcome_channel: { label: 'Welcome channel', type: 'channel' },
   suggestion_channel: { label: 'Suggestion channel', type: 'channel' },

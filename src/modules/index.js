@@ -12,5 +12,6 @@ import * as remind from './remind.js';
 import * as embed from './embed.js';
 import * as apply from './apply.js';
 import * as info from './info.js';
+import * as dashboard from './dashboard.js';
 
-export default [core, verify, tickets, roles, welcome, mod, logs, automod, giveaway, suggest, remind, embed, apply, info];
+export default [core, verify, tickets, roles, welcome, mod, logs, automod, giveaway, suggest, remind, embed, apply, info, dashboard];
