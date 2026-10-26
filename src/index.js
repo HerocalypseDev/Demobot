@@ -24,6 +24,7 @@ for (const m of modules) {
 }
 
 client.on(Events.InteractionCreate, async i => {
+  const receivedAfter = Date.now() - i.createdTimestamp;
   try {
     if (i.isChatInputCommand()) await byCommand.get(i.commandName)?.onCommand(i);
     else if (i.isMessageComponent() || i.isModalSubmit()) {
@@ -31,6 +32,10 @@ client.on(Events.InteractionCreate, async i => {
       await byName.get(name)?.onComponent?.(i, action, args);
     }
   } catch (err) {
+    // 10062: Discord allows 3 s to answer. Replying again would also fail.
+    if (err.code === 10062) {
+      return console.warn(`Interaction expired. Received ${receivedAfter} ms after creation, failed at ${Date.now() - i.createdTimestamp} ms (limit 3000 ms).`);
+    }
     console.error(err);
     if (i.isRepliable()) {
       const reply = { content: 'Something went wrong. The error has been logged.', flags: MessageFlags.Ephemeral };
