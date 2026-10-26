@@ -2,13 +2,19 @@ import {
   SlashCommandBuilder, InteractionContextType, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder,
 } from 'discord.js';
 import { db, getSettings } from '../db.js';
-import { colors, formatDuration, isStaff } from '../util.js';
+import { formatDuration, isStaff } from '../util.js';
+import { bar, card, time } from '../ui.js';
 import { keys } from './core.js';
 
 export const name = 'dashboard';
 
 const DAY = 86_400_000;
-const SECTIONS = { overview: 'Overview', tickets: 'Tickets', moderation: 'Moderation', community: 'Community' };
+const SECTIONS = {
+  overview: ['Overview', 'Key numbers and setup status'],
+  tickets: ['Tickets', 'Support load and staff performance'],
+  moderation: ['Moderation', 'Cases and verification'],
+  community: ['Community', 'Giveaways, suggestions and applications'],
+};
 
 export function ticketStats(guildId, now = Date.now()) {
   const since = now - 7 * DAY;
@@ -32,70 +38,68 @@ export function verifyStats(guildId, now = Date.now()) {
     FROM verifications WHERE guild_id = ? AND created_at >= ?`).get(today, guildId, now - 7 * DAY);
 }
 
-function sectionEmbed(guild, section, now = Date.now()) {
+function sectionBlocks(guild, section, now) {
   const id = guild.id;
   const since = now - 7 * DAY;
   const t = ticketStats(id, now);
   const v = verifyStats(id, now);
-  const passRate = v.pass + v.fail ? `${Math.round((100 * v.pass) / (v.pass + v.fail))}%` : 'n/a';
   const count = (sql, ...args) => db.prepare(sql).get(...args).n;
   const giveaways = count('SELECT COUNT(*) AS n FROM giveaways WHERE guild_id = ? AND ended = 0', id);
   const suggestions = count("SELECT COUNT(*) AS n FROM suggestions WHERE guild_id = ? AND status = 'open'", id);
   const applications = count("SELECT COUNT(*) AS n FROM applications WHERE guild_id = ? AND status = 'pending'", id);
   const cases = db.prepare('SELECT action, COUNT(*) AS n FROM cases WHERE guild_id = ? AND created_at >= ? GROUP BY action ORDER BY n DESC').all(id, since);
   const caseTotal = cases.reduce((sum, c) => sum + c.n, 0);
-  const rating = t.ratings ? `${t.avgRating.toFixed(1)}/5 from ${t.ratings}` : 'n/a';
+  const rating = t.ratings ? `${t.avgRating.toFixed(1)}/5 from ${t.ratings} rating(s)\n${bar(t.avgRating / 5)}` : 'No ratings yet';
 
-  const fields = {
-    overview: () => {
-      const settings = getSettings(id);
-      const missing = Object.entries(keys).filter(([k, s]) => s.type !== 'number' && !settings[k]).map(([, s]) => s.label);
-      return [
-        { name: 'Members', value: String(guild.memberCount), inline: true },
-        { name: 'Open tickets', value: String(t.open), inline: true },
-        { name: 'Cases (7d)', value: String(caseTotal), inline: true },
-        { name: 'Verified today', value: String(v.passToday), inline: true },
-        { name: 'Open suggestions', value: String(suggestions), inline: true },
-        { name: 'Pending applications', value: String(applications), inline: true },
-        { name: 'Setup', value: missing.length ? `Not set: ${missing.join(', ')}. Use \`/setup\`.` : 'Everything is set up.' },
-      ];
-    },
-    tickets: () => {
-      const top = db.prepare(`SELECT claimer_id, COUNT(*) AS n FROM tickets WHERE guild_id = ? AND claimed_at >= ?
-        GROUP BY claimer_id ORDER BY n DESC LIMIT 3`).all(id, since);
-      return [
-        { name: 'Open now', value: String(t.open), inline: true },
-        { name: 'Opened (7d)', value: String(t.opened), inline: true },
-        { name: 'Closed (7d)', value: String(t.closed), inline: true },
-        { name: 'Avg time to claim (7d)', value: formatDuration(t.avgClaim), inline: true },
-        { name: 'Avg rating', value: rating, inline: true },
-        { name: 'Top staff (7d)', value: top.map((r, n) => `${n + 1}. <@${r.claimer_id}> ${r.n} claimed`).join('\n') || 'n/a' },
-      ];
-    },
-    moderation: () => [
-      { name: 'Cases (7d)', value: cases.map(c => `${c.action}: ${c.n}`).join('\n') || 'none', inline: true },
-      { name: 'Verification (7d)', value: `Passed: ${v.pass}\nFailed: ${v.fail}\nToo new: ${v.tooNew}\nPass rate: ${passRate}`, inline: true },
-    ],
-    community: () => [
-      { name: 'Running giveaways', value: String(giveaways), inline: true },
-      { name: 'Open suggestions', value: String(suggestions), inline: true },
-      { name: 'Pending applications', value: String(applications), inline: true },
-    ],
-  }[section]();
-
-  return { title: `${guild.name} dashboard: ${SECTIONS[section]}`, color: colors.brand, fields, timestamp: new Date(now).toISOString() };
+  if (section === 'overview') {
+    const settings = getSettings(id);
+    const required = Object.entries(keys).filter(([, s]) => s.type !== 'number');
+    const missing = required.filter(([k]) => !settings[k]).map(([, s]) => s.label);
+    return [
+      `**Members** ${guild.memberCount}\n**Open tickets** ${t.open}\n**Cases this week** ${caseTotal}\n**Verified today** ${v.passToday}`,
+      `**Open suggestions** ${suggestions}\n**Pending applications** ${applications}\n**Running giveaways** ${giveaways}`,
+      `**Setup** ${required.length - missing.length} of ${required.length} done\n${bar((required.length - missing.length) / required.length)}`
+        + (missing.length ? `\n-# Missing: ${missing.join(', ')}` : ''),
+    ];
+  }
+  if (section === 'tickets') {
+    const top = db.prepare(`SELECT claimer_id, COUNT(*) AS n FROM tickets WHERE guild_id = ? AND claimed_at >= ?
+      GROUP BY claimer_id ORDER BY n DESC LIMIT 3`).all(id, since);
+    return [
+      `**Open now** ${t.open}\n**Opened this week** ${t.opened}\n**Closed this week** ${t.closed}\n**Average time to claim** ${formatDuration(t.avgClaim)}`,
+      `**Satisfaction**\n${rating}`,
+      `**Top staff this week**\n${top.map((r, n) => `${n + 1}. <@${r.claimer_id}>, ${r.n} claimed`).join('\n') || 'No claims yet'}`,
+    ];
+  }
+  if (section === 'moderation') {
+    const attempts = v.pass + v.fail;
+    return [
+      `**Cases this week** ${caseTotal}\n${cases.map(c => `${c.action}: ${c.n}`).join('\n') || 'No cases. All quiet.'}`,
+      `**Verification this week**\nPassed ${v.pass}, failed ${v.fail}, too new ${v.tooNew}\n${attempts ? `${bar(v.pass / attempts)} pass rate` : 'No attempts yet'}`,
+    ];
+  }
+  return [
+    `**Running giveaways** ${giveaways}\n**Open suggestions** ${suggestions}\n**Pending applications** ${applications}`,
+  ];
 }
 
-function view(guild, section) {
-  return {
-    embeds: [sectionEmbed(guild, section)],
-    components: [
+function view(guild, section, ephemeral = false) {
+  const now = Date.now();
+  const [title, subtitle] = SECTIONS[section];
+  return card({
+    title,
+    body: `${guild.name}\n-# ${subtitle}`,
+    thumbnail: guild.iconURL({ size: 128 }) ?? undefined,
+    blocks: sectionBlocks(guild, section, now),
+    footer: `Updated ${time(now)}. Weekly numbers cover the last 7 days.`,
+    rows: [
       new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('dashboard:view')
-        .addOptions(Object.entries(SECTIONS).map(([value, label]) => ({ label, value, default: value === section })))),
+        .addOptions(Object.entries(SECTIONS).map(([value, [label, description]]) => ({ label, value, description, default: value === section })))),
       new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`dashboard:refresh:${section}`).setLabel('Refresh').setStyle(ButtonStyle.Secondary)),
     ],
-  };
+    ephemeral,
+  });
 }
 
 export const commands = [
@@ -106,7 +110,7 @@ const denied = { content: 'Only staff can open the dashboard.', flags: MessageFl
 
 export async function onCommand(i) {
   if (!isStaff(i.member)) return i.reply(denied);
-  await i.reply({ ...view(i.guild, 'overview'), flags: MessageFlags.Ephemeral });
+  await i.reply(view(i.guild, 'overview', true));
 }
 
 export async function onComponent(i, action, [section]) {

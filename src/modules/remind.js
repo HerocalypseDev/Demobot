@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, InteractionContextType, MessageFlags } from 'discord.js';
 import { db } from '../db.js';
 import { colors, parseDuration } from '../util.js';
+import { card, time } from '../ui.js';
 
 export const name = 'remind';
 
@@ -36,8 +37,13 @@ export async function onCommand(i) {
 
   if (sub === 'list') {
     const rows = db.prepare('SELECT * FROM reminders WHERE user_id = ? ORDER BY due_at').all(i.user.id);
-    const description = rows.map(r => `**#${r.id}** <t:${Math.floor(r.due_at / 1000)}:R> ${r.text}`).join('\n') || 'No reminders.';
-    return i.reply({ embeds: [{ title: 'Your reminders', color: colors.brand, description }], flags: MessageFlags.Ephemeral });
+    return i.reply(card({
+      title: 'Your reminders',
+      body: `${rows.length} of ${MAX_PER_USER} reminders in use.`,
+      blocks: [rows.map(r => `**#${r.id}** ${time(r.due_at)}\n> ${r.text}`).join('\n') || 'No reminders yet.'],
+      footer: 'Cancel one with /remind cancel and its number.',
+      ephemeral: true,
+    }));
   }
 
   const removed = db.prepare('DELETE FROM reminders WHERE id = ? AND user_id = ?').run(i.options.getInteger('id'), i.user.id).changes;
@@ -47,11 +53,16 @@ export async function onCommand(i) {
 export async function tick(client) {
   for (const r of db.prepare('SELECT * FROM reminders WHERE due_at <= ?').all(Date.now())) {
     db.prepare('DELETE FROM reminders WHERE id = ?').run(r.id);
-    const text = `Reminder from <t:${Math.floor(r.created_at / 1000)}:R>: ${r.text}`;
-    const sent = await client.users.send(r.user_id, text).then(() => true, () => false);
+    const reminder = mention => card({
+      accent: colors.info,
+      title: 'Reminder',
+      body: `${mention}${r.text.split('\n').map(line => `> ${line}`).join('\n')}`,
+      footer: `You set this ${time(r.created_at)} in <#${r.channel_id}>.`,
+    });
+    const sent = await client.users.send(r.user_id, reminder('')).then(() => true, () => false);
     if (!sent) {
       // DMs closed: fall back to the channel it was set in, pinging only that user.
-      await client.channels.cache.get(r.channel_id)?.send({ content: `<@${r.user_id}> ${text}`, allowedMentions: { users: [r.user_id] } }).catch(() => {});
+      await client.channels.cache.get(r.channel_id)?.send({ ...reminder(`<@${r.user_id}>\n`), allowedMentions: { users: [r.user_id] } }).catch(() => {});
     }
   }
 }

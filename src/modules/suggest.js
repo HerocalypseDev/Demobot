@@ -4,6 +4,7 @@ import {
 } from 'discord.js';
 import { db, getSetting } from '../db.js';
 import { colors, isStaff } from '../util.js';
+import { bar, card } from '../ui.js';
 
 export const name = 'suggest';
 
@@ -28,22 +29,31 @@ export function castVote(id, userId, vote) {
 export const voteCounts = id => db.prepare(`SELECT COALESCE(SUM(vote = 1), 0) AS up, COALESCE(SUM(vote = -1), 0) AS down
   FROM suggestion_votes WHERE suggestion_id = ?`).get(id);
 
-function suggestionMessage(s) {
+const quote = text => text.split('\n').map(line => `> ${line}`).join('\n');
+
+function suggestionMessage(s, client) {
   const { up, down } = voteCounts(s.id);
   const status = STATUS[s.status];
   const open = s.status === 'open';
-  const fields = [{ name: 'Status', value: status.label, inline: true }, { name: 'Votes', value: `${up} up, ${down} down`, inline: true }];
-  if (!open) fields.push({ name: `${status.label} by`, value: `<@${s.staff_id}>: ${s.staff_reason || 'no reason given'}` });
   const button = (id, label, style) => new ButtonBuilder().setCustomId(`suggest:${id}:${s.id}`).setLabel(label).setStyle(style).setDisabled(!open);
-  return {
-    embeds: [{ title: `Suggestion #${s.id}`, description: `From <@${s.author_id}>\n\n${s.text}`, color: status.color, fields }],
-    components: [new ActionRowBuilder().addComponents(
+  return card({
+    accent: status.color,
+    title: `Suggestion #${s.id}`,
+    body: `From <@${s.author_id}>\n-# ${status.label}`,
+    thumbnail: client.users.cache.get(s.author_id)?.displayAvatarURL({ size: 128 }),
+    blocks: [
+      quote(s.text),
+      `**Votes** ${up} up, ${down} down\n${bar(up / (up + down))} in favor`,
+      !open && `**${status.label} by** <@${s.staff_id}>\n${quote(s.staff_reason || 'No reason given.')}`,
+    ],
+    footer: open ? 'Vote with the buttons. Press your vote again to remove it.' : 'Voting is closed.',
+    rows: [new ActionRowBuilder().addComponents(
       button('up', `Up (${up})`, ButtonStyle.Success),
       button('down', `Down (${down})`, ButtonStyle.Danger),
       button('approve', 'Approve', ButtonStyle.Secondary),
       button('deny', 'Deny', ButtonStyle.Secondary),
     )],
-  };
+  });
 }
 
 const ephemeral = content => ({ content, flags: MessageFlags.Ephemeral });
@@ -59,7 +69,7 @@ export async function onCommand(i) {
   if (!channel) return i.reply(ephemeral('Suggestions are not set up yet. Staff can set a channel with `/setup channel`.'));
   const s = db.prepare('INSERT INTO suggestions (guild_id, author_id, text, created_at) VALUES (?, ?, ?, ?) RETURNING *')
     .get(i.guildId, i.user.id, i.options.getString('text'), Date.now());
-  const message = await channel.send(suggestionMessage(s));
+  const message = await channel.send(suggestionMessage(s, i.client));
   await message.startThread({ name: `Suggestion #${s.id} discussion` }).catch(() => {}); // needs Create Public Threads
   await i.reply(ephemeral(`Suggestion #${s.id} posted in ${channel}.`));
 }
@@ -71,7 +81,7 @@ export async function onComponent(i, action, [id, decision]) {
   if (action === 'up' || action === 'down') {
     if (s.status !== 'open') return i.reply(ephemeral('Voting on this suggestion is closed.'));
     castVote(s.id, i.user.id, action === 'up' ? 1 : -1);
-    return i.update(suggestionMessage(s));
+    return i.update(suggestionMessage(s, i.client));
   }
 
   if (!isStaff(i.member)) return i.reply(ephemeral('Only staff can review suggestions.'));
@@ -88,7 +98,7 @@ export async function onComponent(i, action, [id, decision]) {
     const reason = i.fields.getTextInputValue('reason');
     db.prepare('UPDATE suggestions SET status = ?, staff_id = ?, staff_reason = ? WHERE id = ?').run(decision, i.user.id, reason, s.id);
     const updated = { ...s, status: decision, staff_id: i.user.id, staff_reason: reason };
-    await i.update(suggestionMessage(updated));
+    await i.update(suggestionMessage(updated, i.client));
     await i.client.users.send(s.author_id, `Your suggestion #${s.id} in **${i.guild.name}** was ${decision}.${reason ? ` Reason: ${reason}` : ''}`)
       .catch(() => {});
   }

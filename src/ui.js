@@ -9,12 +9,14 @@ const bannerPath = name => fileURLToPath(new URL(`../assets/banners/${name}.png`
  * then each block after a divider, then subtext footer, then buttons/selects.
  * Mentions never ping unless the caller passes its own allowedMentions.
  */
-export function card({ accent = colors.brand, banner, title, body, thumbnail, blocks = [], footer, file, rows = [], files = [], ephemeral = false }) {
+export function card({ accent = colors.brand, banner, image, title, body, thumbnail, blocks = [], footer, file, rows = [], files = [], ephemeral = false }) {
   const c = new ContainerBuilder().setAccentColor(accent);
   const attachments = [...files];
   if (banner) {
     attachments.push(new AttachmentBuilder(bannerPath(banner), { name: `${banner}.png` }));
     c.addMediaGalleryComponents(g => g.addItems(item => item.setURL(`attachment://${banner}.png`)));
+  } else if (image) {
+    c.addMediaGalleryComponents(g => g.addItems(item => item.setURL(image)));
   }
   const head = [title && `## ${title}`, body].filter(Boolean).join('\n');
   if (head && thumbnail) {

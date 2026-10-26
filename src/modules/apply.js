@@ -4,6 +4,7 @@ import {
 } from 'discord.js';
 import { db, getSetting, setSetting } from '../db.js';
 import { colors, isStaff, sendLog } from '../util.js';
+import { card, time, userAuthor } from '../ui.js';
 
 export const name = 'apply';
 
@@ -18,22 +19,24 @@ export function parseQuestions(text) {
 
 const ephemeral = content => ({ content, flags: MessageFlags.Ephemeral });
 
-function reviewMessage(a, questions) {
-  const answers = JSON.parse(a.answers);
+// Answers are stored as [question, answer] pairs. Older rows hold only answers, so pair them with the current questions.
+const pairsOf = (a, questions) => JSON.parse(a.answers).map((x, n) => (typeof x === 'string' ? [questions[n] ?? `Question ${n + 1}`, x] : x));
+
+function reviewMessage(a, questions, client) {
   const done = a.status !== 'pending';
-  return {
-    embeds: [{
-      title: `Application #${a.id}`,
-      description: `From <@${a.user_id}>`,
-      color: a.status === 'accepted' ? colors.ok : a.status === 'denied' ? colors.error : colors.brand,
-      fields: questions.map((q, n) => ({ name: q, value: answers[n] || '(no answer)' })),
-      footer: { text: done ? `${a.status[0].toUpperCase() + a.status.slice(1)}` : 'Pending review' },
-    }],
-    components: done ? [] : [new ActionRowBuilder().addComponents(
+  const label = a.status[0].toUpperCase() + a.status.slice(1);
+  return card({
+    accent: a.status === 'accepted' ? colors.ok : a.status === 'denied' ? colors.error : colors.brand,
+    title: `Application #${a.id}`,
+    body: `From <@${a.user_id}>\n-# Submitted ${time(a.created_at)}`,
+    thumbnail: client.users.cache.get(a.user_id)?.displayAvatarURL({ size: 128 }),
+    blocks: pairsOf(a, questions).map(([q, answer]) => `**${q}**\n${answer.split('\n').map(line => `> ${line}`).join('\n')}`),
+    footer: done ? `${label} by <@${a.reviewer_id}>` : 'Pending review',
+    rows: done ? [] : [new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`apply:accept:${a.id}`).setLabel('Accept').setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId(`apply:deny:${a.id}`).setLabel('Deny').setStyle(ButtonStyle.Danger),
     )],
-  };
+  });
 }
 
 export const commands = [
@@ -62,10 +65,15 @@ export async function onCommand(i) {
   if (!getSetting(i.guildId, 'application_questions')) return i.reply(ephemeral('Set the questions first with `/apply setup`.'));
   if (!getSetting(i.guildId, 'application_channel')) return i.reply(ephemeral('Set a review channel first with `/setup channel`.'));
   const channel = i.options.getChannel('channel') ?? i.channel;
-  await channel.send({
-    embeds: [{ title: i.options.getString('title') ?? 'Applications', description: 'Press the button below to apply. Staff will review your answers.', color: colors.brand }],
-    components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('apply:start').setLabel('Apply').setStyle(ButtonStyle.Primary))],
-  });
+  const questions = JSON.parse(getSetting(i.guildId, 'application_questions'));
+  await channel.send(card({
+    banner: 'applications',
+    title: i.options.getString('title') ?? 'Join the team',
+    body: 'Press **Apply** to fill in a short form. Staff review every application.',
+    blocks: [`**What we ask**\n${questions.map((q, n) => `${n + 1}. ${q}`).join('\n')}`],
+    footer: 'Only staff can see your answers. You get a DM with the result.',
+    rows: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('apply:start').setLabel('Apply').setStyle(ButtonStyle.Primary))],
+  }));
   await i.reply(ephemeral(`Application panel posted in ${channel}.`));
 }
 
@@ -87,10 +95,10 @@ export async function onComponent(i, action, [id]) {
   if (action === 'submit') {
     const channel = i.guild.channels.cache.get(getSetting(i.guildId, 'application_channel'));
     if (!channel) return i.reply(ephemeral('Applications are not set up correctly. Please tell a staff member.'));
-    const answers = questions.map((_, n) => i.fields.getTextInputValue(`q${n}`));
+    const answers = questions.map((q, n) => [q, i.fields.getTextInputValue(`q${n}`)]);
     const a = db.prepare('INSERT INTO applications (guild_id, user_id, answers, created_at) VALUES (?, ?, ?, ?) RETURNING *')
       .get(i.guildId, i.user.id, JSON.stringify(answers), Date.now());
-    await channel.send(reviewMessage(a, questions));
+    await channel.send(reviewMessage(a, questions, i.client));
     return i.reply(ephemeral('Your application was sent. You will get a DM when staff review it.'));
   }
 
@@ -100,9 +108,7 @@ export async function onComponent(i, action, [id]) {
     const changed = db.prepare("UPDATE applications SET status = ?, reviewer_id = ? WHERE id = ? AND status = 'pending'").run(status, i.user.id, Number(id)).changes;
     if (!changed) return i.reply(ephemeral('This application was already reviewed.'));
     const a = db.prepare('SELECT * FROM applications WHERE id = ?').get(Number(id));
-    const message = reviewMessage(a, i.message.embeds[0].fields.map(f => f.name));
-    message.embeds[0].footer.text += ` by ${i.user.username}`;
-    await i.update(message);
+    await i.update(reviewMessage(a, questions, i.client));
 
     let roleNote = '';
     const role = status === 'accepted' && i.guild.roles.cache.get(getSetting(i.guildId, 'application_role'));
@@ -111,7 +117,19 @@ export async function onComponent(i, action, [id]) {
       await member.roles.add(role, `Application #${a.id} accepted`);
       roleNote = ` You now have the ${role.name} role.`;
     }
-    await i.client.users.send(a.user_id, `Your application in **${i.guild.name}** was ${status}.${roleNote}`).catch(() => {});
-    await sendLog(i.guild, { title: `Application #${a.id} ${status}`, color: status === 'accepted' ? colors.ok : colors.error, description: `<@${a.user_id}> reviewed by ${i.user}.` });
+    const accent = status === 'accepted' ? colors.ok : colors.error;
+    await i.client.users.send(a.user_id, card({
+      accent,
+      title: `Application ${status}`,
+      body: `Your application in **${i.guild.name}** was ${status}.${roleNote}`,
+      thumbnail: i.guild.iconURL({ size: 128 }) ?? undefined,
+    })).catch(() => {});
+    const applicant = i.client.users.cache.get(a.user_id);
+    await sendLog(i.guild, {
+      author: applicant ? userAuthor(applicant) : undefined,
+      title: `Application #${a.id} ${status}`,
+      color: accent,
+      description: `<@${a.user_id}> reviewed by ${i.user}.`,
+    });
   }
 }

@@ -5,6 +5,7 @@ import {
 import { randomInt } from 'node:crypto';
 import { db } from '../db.js';
 import { colors, parseDuration } from '../util.js';
+import { card, time } from '../ui.js';
 
 export const name = 'giveaway';
 
@@ -23,25 +24,36 @@ export function pickWinners(pool, count) {
 
 const entriesOf = id => db.prepare('SELECT user_id FROM giveaway_entries WHERE giveaway_id = ?').all(id).map(r => r.user_id);
 const entryCount = id => db.prepare('SELECT COUNT(*) AS n FROM giveaway_entries WHERE giveaway_id = ?').get(id).n;
-const ts = (ms, style) => `<t:${Math.floor(ms / 1000)}:${style}>`;
+const ts = time;
+const mentions = ids => ids.map(id => `<@${id}>`).join(', ');
 
+// Always rebuilt with the banner file, so updates through button clicks keep the image.
 function giveawayMessage(g) {
   const winnerIds = g.winner_ids ? JSON.parse(g.winner_ids) : [];
-  const lines = g.ended
-    ? [`**Winners:** ${winnerIds.length ? winnerIds.map(id => `<@${id}>`).join(', ') : 'no valid entries'}`, `Ended ${ts(g.ends_at, 'R')}`]
-    : [`Press **Enter** to join.`, `**Winners:** ${g.winners}`, `**Ends:** ${ts(g.ends_at, 'R')} (${ts(g.ends_at, 'f')})`];
-  return {
-    embeds: [{
-      title: g.prize,
-      description: [...lines, `**Hosted by:** <@${g.host_id}>`].join('\n'),
-      color: g.ended ? colors.info : colors.brand,
-      footer: { text: `Giveaway #${g.id}` },
-    }],
-    components: [new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`giveaway:enter:${g.id}`).setLabel(`Enter (${entryCount(g.id)})`)
+  const entries = entryCount(g.id);
+  return card({
+    accent: g.ended ? colors.info : colors.brand,
+    banner: 'giveaway',
+    title: g.prize,
+    body: g.ended ? 'This giveaway has ended.' : 'Press **Enter** to join. Press it again to leave.',
+    blocks: [g.ended
+      ? `**Winners** ${winnerIds.length ? mentions(winnerIds) : 'no valid entries'}\n**Entries** ${entries}\n**Hosted by** <@${g.host_id}>\n**Ended** ${ts(g.ends_at, 'R')}`
+      : `**Ends** ${ts(g.ends_at, 'R')} (${ts(g.ends_at, 'f')})\n**Winners** ${g.winners}\n**Entries** ${entries}\n**Hosted by** <@${g.host_id}>`],
+    footer: `Giveaway #${g.id}. Winners are picked at random when it ends.`,
+    rows: [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`giveaway:enter:${g.id}`).setLabel(g.ended ? `Ended (${entries} entries)` : `Enter (${entries})`)
         .setStyle(ButtonStyle.Success).setDisabled(Boolean(g.ended)))],
-  };
+  });
 }
+
+const winnerCard = (g, winners, title) => ({
+  ...card({
+    accent: colors.ok,
+    body: `### ${title}\n${mentions(winners)} won **${g.prize}**.`,
+    footer: `Giveaway #${g.id}, hosted by <@${g.host_id}>`,
+  }),
+  allowedMentions: { users: winners },
+});
 
 async function endGiveaway(client, g) {
   if (db.prepare('UPDATE giveaways SET ended = 1 WHERE id = ? AND ended = 0').run(g.id).changes !== 1) return;
@@ -52,11 +64,10 @@ async function endGiveaway(client, g) {
   const message = await channel.messages.fetch(g.message_id).catch(() => null);
   await message?.edit(giveawayMessage({ ...g, ended: 1, winner_ids: JSON.stringify(winners) }));
   await channel.send({
-    content: winners.length
-      ? `Congratulations ${winners.map(id => `<@${id}>`).join(', ')}! You won **${g.prize}**.`
-      : `Giveaway #${g.id} for **${g.prize}** ended with no entries.`,
+    ...(winners.length
+      ? winnerCard(g, winners, 'Congratulations')
+      : card({ accent: colors.warn, body: `### No winners\nGiveaway #${g.id} for **${g.prize}** ended with no entries.` })),
     reply: message ? { messageReference: message.id } : undefined,
-    allowedMentions: { users: winners },
   });
 }
 
@@ -98,8 +109,13 @@ export async function onCommand(i) {
 
   if (sub === 'list') {
     const rows = db.prepare('SELECT * FROM giveaways WHERE guild_id = ? AND ended = 0 ORDER BY ends_at').all(i.guildId);
-    const description = rows.map(g => `**#${g.id}** ${g.prize} in <#${g.channel_id}>, ends ${ts(g.ends_at, 'R')}, ${entryCount(g.id)} entries`).join('\n');
-    return i.reply({ embeds: [{ title: 'Running giveaways', color: colors.brand, description: description || 'None.' }], flags: MessageFlags.Ephemeral });
+    return i.reply(card({
+      title: 'Running giveaways',
+      body: `${rows.length} running in this server.`,
+      blocks: rows.slice(0, 10).map(g => `**#${g.id} ${g.prize}**\nIn <#${g.channel_id}>, ends ${ts(g.ends_at, 'R')}, ${entryCount(g.id)} entries`),
+      footer: rows.length ? 'Use /giveaway end with the number to end one early.' : 'Start one with /giveaway start.',
+      ephemeral: true,
+    }));
   }
 
   const g = db.prepare('SELECT * FROM giveaways WHERE id = ? AND guild_id = ?').get(i.options.getInteger('id'), i.guildId);
@@ -118,10 +134,7 @@ export async function onCommand(i) {
     const winners = pickWinners(entriesOf(g.id).filter(id => !previous.includes(id)), i.options.getInteger('count') ?? 1);
     if (!winners.length) return i.reply(ephemeral('No other entries left to pick from.'));
     db.prepare('UPDATE giveaways SET winner_ids = ? WHERE id = ?').run(JSON.stringify([...previous, ...winners]), g.id);
-    return i.reply({
-      content: `New winner(s) for **${g.prize}**: ${winners.map(id => `<@${id}>`).join(', ')}. Congratulations!`,
-      allowedMentions: { users: winners },
-    });
+    return i.reply(winnerCard(g, winners, 'New winner picked'));
   }
 }
 

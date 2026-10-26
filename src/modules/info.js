@@ -1,10 +1,11 @@
-import { SlashCommandBuilder, InteractionContextType, ChannelType } from 'discord.js';
+import { SlashCommandBuilder, InteractionContextType, ChannelType, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { db } from '../db.js';
 import { colors, isStaff } from '../util.js';
+import { card, time } from '../ui.js';
 
 export const name = 'info';
 
-const ts = ms => `<t:${Math.floor(ms / 1000)}:D> (<t:${Math.floor(ms / 1000)}:R>)`;
+const date = ms => `${time(ms, 'D')} (${time(ms)})`;
 const userOpt = o => o.setName('user').setDescription('Member (default: you)');
 
 export const commands = [
@@ -17,49 +18,50 @@ export async function onCommand(i) {
   if (i.commandName === 'serverinfo') {
     const g = i.guild;
     const count = type => g.channels.cache.filter(c => c.type === type).size;
-    return i.reply({
-      embeds: [{
-        title: g.name,
-        color: colors.brand,
-        thumbnail: g.iconURL() ? { url: g.iconURL({ size: 256 }) } : undefined,
-        fields: [
-          { name: 'Owner', value: `<@${g.ownerId}>`, inline: true },
-          { name: 'Members', value: String(g.memberCount), inline: true },
-          { name: 'Boosts', value: `${g.premiumSubscriptionCount ?? 0} (level ${g.premiumTier})`, inline: true },
-          { name: 'Channels', value: `${count(ChannelType.GuildText)} text, ${count(ChannelType.GuildVoice)} voice`, inline: true },
-          { name: 'Roles', value: String(g.roles.cache.size - 1), inline: true },
-          { name: 'Created', value: ts(g.createdTimestamp), inline: true },
-        ],
-        footer: { text: `ID ${g.id}` },
-      }],
-    });
+    return i.reply(card({
+      image: g.bannerURL({ size: 1024 }) ?? undefined,
+      title: g.name,
+      body: g.description ?? 'Server overview',
+      thumbnail: g.iconURL({ size: 256 }) ?? undefined,
+      blocks: [
+        `**Owner** <@${g.ownerId}>\n**Created** ${date(g.createdTimestamp)}`,
+        `**Members** ${g.memberCount}\n**Channels** ${count(ChannelType.GuildText)} text, ${count(ChannelType.GuildVoice)} voice, ${count(ChannelType.GuildCategory)} categories\n**Roles** ${g.roles.cache.size - 1}\n**Boosts** ${g.premiumSubscriptionCount ?? 0} (level ${g.premiumTier})`,
+      ],
+      footer: `Server ID ${g.id}`,
+    }));
   }
 
-  const user = i.options.getUser('user') ?? i.user;
+  // A forced fetch is the only way to get the profile banner.
+  const user = await i.client.users.fetch((i.options.getUser('user') ?? i.user).id, { force: true });
+
   if (i.commandName === 'avatar') {
-    const url = user.displayAvatarURL({ size: 1024 });
-    return i.reply({ embeds: [{ title: `${user.username}'s avatar`, url, image: { url }, color: colors.brand }] });
+    const link = (label, extension) => new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel(label)
+      .setURL(user.displayAvatarURL({ extension, size: 1024, forceStatic: extension !== 'gif' }));
+    const formats = [['PNG', 'png'], ['WebP', 'webp'], ['JPG', 'jpg'], ...(user.avatar?.startsWith('a_') ? [['GIF', 'gif']] : [])];
+    return i.reply(card({
+      title: `${user.displayName}'s avatar`,
+      image: user.displayAvatarURL({ size: 1024 }),
+      rows: [new ActionRowBuilder().addComponents(formats.map(([label, ext]) => link(label, ext)))],
+    }));
   }
 
   const member = i.options.getMember('user') ?? (user.id === i.user.id ? i.member : null);
-  const fields = [{ name: 'Account created', value: ts(user.createdTimestamp) }];
+  const blocks = [`**Account created** ${date(user.createdTimestamp)}${member ? `\n**Joined server** ${date(member.joinedTimestamp)}` : ''}`];
   if (member) {
     const roles = member.roles.cache.filter(r => r.id !== i.guildId).sort((a, b) => b.position - a.position);
-    fields.push({ name: 'Joined server', value: ts(member.joinedTimestamp) });
-    fields.push({ name: `Roles (${roles.size})`, value: roles.first(15).join(' ') || 'none' });
+    blocks.push(`**Roles (${roles.size})**\n${roles.first(15).join(' ') || 'none'}`);
   }
   if (isStaff(i.member)) {
     const cases = db.prepare('SELECT COUNT(*) AS n FROM cases WHERE guild_id = ? AND user_id = ?').get(i.guildId, user.id).n;
-    fields.push({ name: 'Moderation cases', value: String(cases), inline: true });
+    blocks.push(`**Moderation cases** ${cases}`);
   }
-  return i.reply({
-    embeds: [{
-      title: member?.displayName ?? user.username,
-      description: `${user}${user.bot ? ' (bot)' : ''}`,
-      color: member?.displayColor || colors.brand,
-      thumbnail: { url: user.displayAvatarURL({ size: 256 }) },
-      fields,
-      footer: { text: `ID ${user.id}` },
-    }],
-  });
+  return i.reply(card({
+    accent: member?.displayColor || colors.brand,
+    image: user.bannerURL({ size: 1024 }) ?? undefined,
+    title: member?.displayName ?? user.displayName,
+    body: `${user} (${user.username})${user.bot ? ', bot' : ''}`,
+    thumbnail: user.displayAvatarURL({ size: 256 }),
+    blocks,
+    footer: `User ID ${user.id}`,
+  }));
 }
