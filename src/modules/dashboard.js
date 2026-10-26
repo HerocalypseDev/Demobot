@@ -2,23 +2,13 @@ import {
   SlashCommandBuilder, InteractionContextType, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder,
 } from 'discord.js';
 import { db, getSettings } from '../db.js';
-import { colors, isStaff } from '../util.js';
+import { colors, formatDuration, isStaff } from '../util.js';
 import { keys } from './core.js';
 
 export const name = 'dashboard';
 
 const DAY = 86_400_000;
 const SECTIONS = { overview: 'Overview', tickets: 'Tickets', moderation: 'Moderation', community: 'Community' };
-
-export function formatDuration(ms) {
-  if (ms == null) return 'n/a';
-  const s = Math.round(ms / 1000);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60), h = Math.floor(m / 60), d = Math.floor(h / 24);
-  if (d) return `${d}d ${h % 24}h`;
-  if (h) return `${h}h ${m % 60}m`;
-  return `${m}m`;
-}
 
 export function ticketStats(guildId, now = Date.now()) {
   const since = now - 7 * DAY;

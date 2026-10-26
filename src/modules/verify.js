@@ -5,6 +5,7 @@ import {
 import { randomInt } from 'node:crypto';
 import { db, getSetting } from '../db.js';
 import { colors, sendLog } from '../util.js';
+import { card, userAuthor } from '../ui.js';
 
 export const name = 'verify';
 
@@ -62,16 +63,17 @@ export async function onCommand(i) {
   if (!role.editable) return i.reply(ephemeral(`I can't give ${role}. Move my role above it and give me Manage Roles.`));
 
   const channel = i.options.getChannel('channel') ?? i.channel;
-  await channel.send({
-    embeds: [{
-      title: 'Verification',
-      description: 'Press the button below and answer a short question to get access to the server.',
-      color: colors.brand,
-    }],
-    components: [new ActionRowBuilder().addComponents(
+  const minDays = Number(getSetting(i.guildId, 'verify_min_age_days') ?? 0);
+  await channel.send(card({
+    banner: 'verify',
+    title: `Welcome to ${i.guild.name}`,
+    body: 'This server uses a quick check to keep automated accounts out.',
+    blocks: [`**1.** Press **Verify** below\n**2.** Answer one short math question\n**3.** You get the ${role} role and full access`],
+    footer: [minDays ? `Accounts must be at least ${minDays} day(s) old.` : '', 'Your answer is private. Only you can see it.'].filter(Boolean).join('\n'),
+    rows: [new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('verify:start').setLabel('Verify').setStyle(ButtonStyle.Success),
     )],
-  });
+  }));
   await i.reply(ephemeral(`Verification panel posted in ${channel}.`));
 }
 
@@ -91,7 +93,7 @@ export async function onComponent(i, action) {
     const minDays = Number(getSetting(i.guildId, 'verify_min_age_days') ?? 0);
     if (accountTooNew(i.user.createdTimestamp, minDays)) {
       record(i.guildId, i.user.id, 'too_new');
-      await sendLog(i.guild, { title: 'Verification refused', color: colors.warn, description: `${i.user} account is younger than ${minDays} day(s).` });
+      await sendLog(i.guild, { author: userAuthor(i.user), title: 'Verification refused', color: colors.warn, description: `${i.user} account is younger than ${minDays} day(s).` });
       return i.reply(ephemeral(`Your account must be at least ${minDays} day(s) old to verify.`));
     }
     const captcha = newCaptcha();
@@ -117,6 +119,7 @@ export async function onComponent(i, action) {
       fails.set(key, failTimes);
       const locked = failTimes.length >= MAX_FAILS;
       await sendLog(i.guild, {
+        author: userAuthor(i.user),
         title: locked ? 'Verification locked' : 'Verification failed',
         color: locked ? colors.error : colors.warn,
         description: `${i.user} gave a wrong answer (${failTimes.length}/${MAX_FAILS}).`,
@@ -127,7 +130,7 @@ export async function onComponent(i, action) {
     if (!role.editable) return i.reply(ephemeral('I am missing permission to give the verified role. Please tell a staff member.'));
     await i.member.roles.add(role, 'Passed verification');
     fails.delete(key);
-    await sendLog(i.guild, { title: 'Member verified', color: colors.ok, description: `${i.user} passed verification.` });
+    await sendLog(i.guild, { author: userAuthor(i.user), title: 'Member verified', color: colors.ok, description: `${i.user} passed verification.` });
     return i.reply(ephemeral('You are verified. Welcome!'));
   }
 }

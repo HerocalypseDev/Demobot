@@ -47,8 +47,12 @@ client.on(Events.InteractionCreate, async i => {
   }
 });
 
-client.once(Events.ClientReady, c => {
+client.once(Events.ClientReady, async c => {
   console.log(`Logged in as ${c.user.tag} in ${c.guilds.cache.size} server(s).`);
+  // Command IDs make clickable </command:id> mentions in /help and hints.
+  c.commandIds = new Map();
+  const registered = await (process.env.GUILD_ID ? c.guilds.cache.get(process.env.GUILD_ID)?.commands : c.application.commands)?.fetch().catch(() => null);
+  for (const command of registered?.values() ?? []) c.commandIds.set(command.name, command.id);
   setInterval(() => {
     for (const m of modules) m.tick?.(c).catch(err => console.error(`[${m.name}:tick]`, err));
   }, 30_000);

@@ -1,6 +1,10 @@
-import { SlashCommandBuilder, PermissionFlagsBits, ChannelType, InteractionContextType, MessageFlags } from 'discord.js';
+import {
+  SlashCommandBuilder, PermissionFlagsBits, ChannelType, InteractionContextType, MessageFlags, ApplicationCommandOptionType,
+} from 'discord.js';
 import { getSettings, setSetting } from '../db.js';
-import { colors } from '../util.js';
+import { formatDuration } from '../util.js';
+import { card, cmd } from '../ui.js';
+import pkg from '../../package.json' with { type: 'json' };
 
 export const name = 'core';
 
@@ -45,22 +49,58 @@ function show(key, value) {
   return `<#${value}>`;
 }
 
+const GROUPS = [
+  ['Setup and info', ['core', 'dashboard', 'info', 'embed']],
+  ['Safety', ['verify', 'mod', 'automod']],
+  ['Support', ['tickets', 'apply']],
+  ['Community', ['roles', 'welcome', 'giveaway', 'suggest', 'remind']],
+];
+
+function commandLine(client, command) {
+  const subs = (command.toJSON().options ?? []).filter(o => o.type === ApplicationCommandOptionType.Subcommand);
+  if (!subs.length) return `${cmd(client, command.name)} ${command.description}`;
+  return `**/${command.name}** ${command.description}\n-# ${subs.map(o => cmd(client, `${command.name} ${o.name}`)).join('  ')}`;
+}
+
 export async function onCommand(i) {
-  if (i.commandName === 'ping') return i.reply({ content: `Pong. Gateway latency ${i.client.ws.ping} ms.`, flags: MessageFlags.Ephemeral });
+  if (i.commandName === 'ping') {
+    return i.reply(card({
+      title: 'Pong',
+      blocks: [`**Gateway** ${i.client.ws.ping} ms\n**Round trip** ${Date.now() - i.createdTimestamp} ms\n**Uptime** ${formatDuration(i.client.uptime)}`],
+      footer: `Demobot v${pkg.version}`,
+      ephemeral: true,
+    }));
+  }
 
   if (i.commandName === 'help') {
-    const fields = i.client.modules.filter(m => m.commands?.length).map(m => ({
-      name: m.name[0].toUpperCase() + m.name.slice(1),
-      value: m.commands.map(c => `\`/${c.name}\` ${c.description}`).join('\n'),
+    const byName = new Map(i.client.modules.map(m => [m.name, m]));
+    const blocks = GROUPS.map(([title, names]) =>
+      `### ${title}\n${names.flatMap(n => byName.get(n)?.commands ?? []).map(c => commandLine(i.client, c)).join('\n')}`);
+    return i.reply(card({
+      banner: 'help',
+      title: 'Commands',
+      body: 'Everything Demobot can do. Click a command to use it.',
+      blocks,
+      footer: `Demobot v${pkg.version}. Staff commands only work for members with the right permissions.`,
+      ephemeral: true,
     }));
-    return i.reply({ embeds: [{ title: 'Demobot commands', color: colors.brand, fields }], flags: MessageFlags.Ephemeral });
   }
 
   const sub = i.options.getSubcommand();
   if (sub === 'view') {
     const settings = getSettings(i.guildId);
-    const description = Object.entries(keys).map(([key, k]) => `**${k.label}:** ${show(key, settings[key])}`).join('\n');
-    return i.reply({ embeds: [{ title: 'Server settings', color: colors.brand, description }], flags: MessageFlags.Ephemeral });
+    const list = types => Object.entries(keys).filter(([, k]) => types.includes(k.type))
+      .map(([key, k]) => `**${k.label}**  ${settings[key] != null ? show(key, settings[key]) : 'Missing'}`).join('\n');
+    const total = Object.keys(keys).length;
+    const set = Object.keys(keys).filter(k => settings[k] != null).length;
+    return i.reply(card({
+      title: 'Server settings',
+      body: `${set} of ${total} settings configured.`,
+      thumbnail: i.guild.iconURL({ size: 128 }) ?? undefined,
+      blocks: [`### Channels\n${list(['channel', 'category'])}`, `### Roles\n${list(['role'])}`, `### Verification\n${list(['number'])}`],
+      footer: `Change settings with ${['channel', 'category', 'role', 'number'].map(s => cmd(i.client, `setup ${s}`)).join(', ')}.`,
+      ephemeral: true,
+    }));
   }
 
   const key = i.options.getString('key');

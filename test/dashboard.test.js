@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { db } from '../src/db.js';
-import { formatDuration, ticketStats, verifyStats } from '../src/modules/dashboard.js';
+import { formatDuration } from '../src/util.js';
+import { ticketStats, verifyStats } from '../src/modules/dashboard.js';
 
 const DAY = 86_400_000;
 const now = 100 * DAY + 3_600_000;

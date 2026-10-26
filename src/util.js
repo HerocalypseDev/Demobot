@@ -1,7 +1,7 @@
 import { PermissionFlagsBits } from 'discord.js';
 import { getSetting } from './db.js';
 
-export const colors = { brand: 0x8b5e3c, ok: 0x3ba55c, warn: 0xfaa61a, error: 0xed4245, info: 0x5865f2 };
+export const colors = { brand: 0x8b5e3c, ok: 0x4e8a5a, warn: 0xc98a2b, error: 0xb5473a, info: 0x5a6e8c };
 
 const UNITS = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000 };
 
@@ -14,6 +14,16 @@ export function parseDuration(text) {
   return ms > 0 ? ms : null;
 }
 
+export function formatDuration(ms) {
+  if (ms == null) return 'n/a';
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60), h = Math.floor(m / 60), d = Math.floor(h / 24);
+  if (d) return `${d}d ${h % 24}h`;
+  if (h) return `${h}h ${m % 60}m`;
+  return `${m}m`;
+}
+
 export function isStaff(member) {
   const role = getSetting(member.guild.id, 'staff_role');
   return member.permissions.has(PermissionFlagsBits.ManageGuild) || (role && member.roles.cache.has(role));
@@ -23,5 +33,13 @@ export async function sendLog(guild, embed, files = []) {
   const id = getSetting(guild.id, 'log_channel');
   const channel = id && guild.channels.cache.get(id);
   if (!channel?.isTextBased()) return;
-  await channel.send({ embeds: [{ color: colors.info, timestamp: new Date().toISOString(), ...embed }], files }).catch(console.error);
+  await channel.send({
+    embeds: [{
+      color: colors.info,
+      timestamp: new Date().toISOString(),
+      footer: { text: guild.name, icon_url: guild.iconURL({ size: 64 }) ?? undefined },
+      ...embed,
+    }],
+    files,
+  }).catch(console.error);
 }
