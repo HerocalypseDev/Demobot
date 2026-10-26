@@ -77,6 +77,15 @@ CREATE TABLE IF NOT EXISTS suggestion_votes (
   vote INTEGER NOT NULL,
   PRIMARY KEY (suggestion_id, user_id)
 );
+CREATE TABLE IF NOT EXISTS applications (
+  id INTEGER PRIMARY KEY,
+  guild_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  answers TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  reviewer_id TEXT,
+  created_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS reminders (
   id INTEGER PRIMARY KEY,
   user_id TEXT NOT NULL,

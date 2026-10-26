@@ -9,5 +9,8 @@ import * as automod from './automod.js';
 import * as giveaway from './giveaway.js';
 import * as suggest from './suggest.js';
 import * as remind from './remind.js';
+import * as embed from './embed.js';
+import * as apply from './apply.js';
+import * as info from './info.js';
 
-export default [core, verify, tickets, roles, welcome, mod, logs, automod, giveaway, suggest, remind];
+export default [core, verify, tickets, roles, welcome, mod, logs, automod, giveaway, suggest, remind, embed, apply, info];
