@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Events, MessageFlags } from 'discord.js';
+import { Client, GatewayIntentBits, Events, MessageFlags, Partials } from 'discord.js';
 import modules from './modules/index.js';
 import { colors, sendLog } from './util.js';
 
@@ -10,6 +10,8 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildModeration,
   ],
+  // Leave events fire for members that were never cached.
+  partials: [Partials.GuildMember],
 });
 client.modules = modules;
 
