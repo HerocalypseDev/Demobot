@@ -14,6 +14,26 @@ CREATE TABLE IF NOT EXISTS verifications (
   result TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS tickets (
+  id INTEGER PRIMARY KEY,
+  guild_id TEXT NOT NULL,
+  number INTEGER NOT NULL,
+  channel_id TEXT,
+  opener_id TEXT NOT NULL,
+  category TEXT NOT NULL,
+  reason TEXT,
+  priority TEXT NOT NULL DEFAULT 'normal',
+  claimer_id TEXT,
+  opened_at INTEGER NOT NULL,
+  claimed_at INTEGER,
+  closed_at INTEGER,
+  closed_by TEXT,
+  rating INTEGER,
+  last_activity INTEGER NOT NULL,
+  warned_at INTEGER,
+  UNIQUE (guild_id, number)
+);
+CREATE INDEX IF NOT EXISTS tickets_channel ON tickets (channel_id);
 `;
 
 export function openDb(file) {

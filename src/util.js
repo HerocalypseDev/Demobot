@@ -8,9 +8,9 @@ export function isStaff(member) {
   return member.permissions.has(PermissionFlagsBits.ManageGuild) || (role && member.roles.cache.has(role));
 }
 
-export async function sendLog(guild, embed) {
+export async function sendLog(guild, embed, files = []) {
   const id = getSetting(guild.id, 'log_channel');
   const channel = id && guild.channels.cache.get(id);
   if (!channel?.isTextBased()) return;
-  await channel.send({ embeds: [{ color: colors.info, timestamp: new Date().toISOString(), ...embed }] }).catch(console.error);
+  await channel.send({ embeds: [{ color: colors.info, timestamp: new Date().toISOString(), ...embed }], files }).catch(console.error);
 }
