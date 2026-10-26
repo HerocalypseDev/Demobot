@@ -3,6 +3,17 @@ import { getSetting } from './db.js';
 
 export const colors = { brand: 0x8b5e3c, ok: 0x3ba55c, warn: 0xfaa61a, error: 0xed4245, info: 0x5865f2 };
 
+const UNITS = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000 };
+
+// "10m", "2h", "1h30m", "1d 12h" -> milliseconds, or null if invalid.
+export function parseDuration(text) {
+  const clean = String(text).toLowerCase().replace(/\s+/g, '');
+  if (!/^(\d+[smhdw])+$/.test(clean)) return null;
+  let ms = 0;
+  for (const [, n, unit] of clean.matchAll(/(\d+)([smhdw])/g)) ms += Number(n) * UNITS[unit];
+  return ms > 0 ? ms : null;
+}
+
 export function isStaff(member) {
   const role = getSetting(member.guild.id, 'staff_role');
   return member.permissions.has(PermissionFlagsBits.ManageGuild) || (role && member.roles.cache.has(role));

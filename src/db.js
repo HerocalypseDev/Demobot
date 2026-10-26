@@ -34,6 +34,16 @@ CREATE TABLE IF NOT EXISTS tickets (
   UNIQUE (guild_id, number)
 );
 CREATE INDEX IF NOT EXISTS tickets_channel ON tickets (channel_id);
+CREATE TABLE IF NOT EXISTS cases (
+  guild_id TEXT NOT NULL,
+  number INTEGER NOT NULL,
+  user_id TEXT NOT NULL,
+  mod_id TEXT NOT NULL,
+  action TEXT NOT NULL,
+  reason TEXT,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (guild_id, number)
+);
 `;
 
 export function openDb(file) {
