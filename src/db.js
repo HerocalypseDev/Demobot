@@ -8,6 +8,12 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT,
   PRIMARY KEY (guild_id, key)
 );
+CREATE TABLE IF NOT EXISTS verifications (
+  guild_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  result TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
 `;
 
 export function openDb(file) {
