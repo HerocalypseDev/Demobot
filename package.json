@@ -1,6 +1,6 @@
 {
   "name": "demobot",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "All-in-one Discord bot built with Discord.js: tickets, verification, moderation, roles, giveaways and more.",
   "type": "module",
   "main": "src/index.js",

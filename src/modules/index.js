@@ -6,5 +6,8 @@ import * as welcome from './welcome.js';
 import * as mod from './mod.js';
 import * as logs from './logs.js';
 import * as automod from './automod.js';
+import * as giveaway from './giveaway.js';
+import * as suggest from './suggest.js';
+import * as remind from './remind.js';
 
-export default [core, verify, tickets, roles, welcome, mod, logs, automod];
+export default [core, verify, tickets, roles, welcome, mod, logs, automod, giveaway, suggest, remind];
