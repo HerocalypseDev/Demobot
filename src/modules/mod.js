@@ -23,6 +23,7 @@ export function addCase(guildId, userId, modId, action, reason, now = Date.now()
 // Moderator side only. The bot side uses discord.js moderatable/kickable/bannable.
 export function moderationProblem(actor, target) {
   if (target.id === actor.id) return "You can't moderate yourself.";
+  if (target.id === target.client?.user.id) return "You can't moderate me.";
   if (target.id === target.guild.ownerId) return "You can't moderate the server owner.";
   if (actor.id !== actor.guild.ownerId && target.roles.highest.position >= actor.roles.highest.position) {
     return 'Their highest role is not below yours.';

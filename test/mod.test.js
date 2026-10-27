@@ -26,6 +26,7 @@ test('moderator hierarchy', () => {
   assert.equal(moderationProblem(m('a', 5), m('b', 5)), 'Their highest role is not below yours.');
   assert.equal(moderationProblem(m('a', 5), m('b', 4)), null);
   assert.equal(moderationProblem(m('owner', 1), m('b', 9)), null);
+  assert.equal(moderationProblem(m('a', 9), { ...m('bot', 1), client: { user: { id: 'bot' } } }), "You can't moderate me.");
 });
 
 test('automod keywords', () => {

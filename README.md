@@ -8,15 +8,19 @@ Every panel uses Discord's newest message layout, **Components V2**, with custom
 
 ## Screenshots
 
-| Ticket panel | Ticket |
+| Help | Verification |
 | --- | --- |
+| ![Help](docs/screenshots/help.png) | ![Verification](docs/screenshots/verify.png) |
+| **Ticket panel** | **Ticket** |
 | ![Ticket panel](docs/screenshots/ticket-panel.png) | ![Ticket](docs/screenshots/ticket.png) |
 | **Staff dashboard** | **HTML transcript** |
 | ![Dashboard](docs/screenshots/dashboard.png) | ![Transcript](docs/screenshots/transcript.png) |
+| **Moderation case** | **Server logs** |
+| ![Moderation case](docs/screenshots/mod-case.png) | ![Server logs](docs/screenshots/logs.png) |
 | **Giveaway** | **Suggestion** |
 | ![Giveaway](docs/screenshots/giveaway.png) | ![Suggestion](docs/screenshots/suggestion.png) |
-| **Welcome card** | |
-| ![Welcome](docs/screenshots/welcome.png) | |
+| **Applications** | **Welcome card** |
+| ![Applications](docs/screenshots/applications.png) | ![Welcome](docs/screenshots/welcome.png) |
 
 ## Features
 
