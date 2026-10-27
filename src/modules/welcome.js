@@ -6,7 +6,7 @@ import { card, time } from '../ui.js';
 export const name = 'welcome';
 
 const DEFAULTS = {
-  welcome_message: 'Welcome {user} to **{server}**! You are member #{count}.',
+  welcome_message: 'Welcome {user} to **{server}**! Make yourself at home.',
   leave_message: '**{name}** left the server. We now have {count} members.',
 };
 
